@@ -52,18 +52,18 @@ jobs:
           echo "value=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Restore
-        run: dotnet restore ProtoDescDump.sln
+        run: dotnet restore ProtoDescDump.slnx
 
       - name: Build
         run: >-
-          dotnet build ProtoDescDump.sln
+          dotnet build ProtoDescDump.slnx
           -c Release
           --no-restore
           -p:Version=${{ steps.version.outputs.value }}
 
       - name: Test
         run: >-
-          dotnet test ProtoDescDump.sln
+          dotnet test ProtoDescDump.slnx
           -c Release
           --no-build
           -p:Version=${{ steps.version.outputs.value }}
