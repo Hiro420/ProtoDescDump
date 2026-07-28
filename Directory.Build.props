@@ -1,0 +1,21 @@
+<Project>
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+
+    <Authors>Hiro420</Authors>
+    <Company>Hiro420</Company>
+    <Copyright>Copyright © Hiro420</Copyright>
+    <VersionPrefix>0.1.0</VersionPrefix>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <PackageOutputPath>$(MSBuildThisFileDirectory)artifacts/packages</PackageOutputPath>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <DebugType>portable</DebugType>
+  </PropertyGroup>
+</Project>

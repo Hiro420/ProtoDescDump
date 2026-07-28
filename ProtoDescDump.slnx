@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ProtoDescDump.Cli/ProtoDescDump.Cli.csproj" />
+    <Project Path="src/ProtoDescDump.Core/ProtoDescDump.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ProtoDescDump.Tests/ProtoDescDump.Tests.csproj" />
+  </Folder>
+</Solution>

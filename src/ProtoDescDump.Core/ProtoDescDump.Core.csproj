@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <AssemblyName>ProtoDescDump.Core</AssemblyName>
+    <RootNamespace>ProtoDescDump.Core</RootNamespace>
+
+    <IsPackable>true</IsPackable>
+    <PackageId>ProtoDescDump.Core</PackageId>
+    <Title>Main Package Of ProtoDescDump</Title>
+    <Description>Recover protocol definitions from protobuf descriptors</Description>
+    <PackageTags>protobuf;proto;descriptor;schema;grpc;rpc;reverse-engineering</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <EnablePackageValidation>true</EnablePackageValidation>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="protobuf-net" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" Link="README.md" />
+    <None Include="../../LICENSE" Pack="true" PackagePath="/" Link="LICENSE" />
+  </ItemGroup>
+</Project>
