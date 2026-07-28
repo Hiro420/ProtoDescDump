@@ -1,0 +1,105 @@
+name: Publish NuGet packages
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Package version, for example 0.1.0 or 0.2.0-beta.1
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  NUGET_SOURCE: https://api.nuget.org/v3/index.json
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install .NET SDKs
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Resolve package version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid package version: $VERSION" >&2
+            exit 1
+          fi
+
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Restore
+        run: dotnet restore ProtoDescDump.sln
+
+      - name: Build
+        run: >-
+          dotnet build ProtoDescDump.sln
+          -c Release
+          --no-restore
+          -p:Version=${{ steps.version.outputs.value }}
+
+      - name: Test
+        run: >-
+          dotnet test ProtoDescDump.sln
+          -c Release
+          --no-build
+          -p:Version=${{ steps.version.outputs.value }}
+
+      - name: Pack Core
+        run: >-
+          dotnet pack src/ProtoDescDump.Core/ProtoDescDump.Core.csproj
+          -c Release
+          --no-build
+          -p:PackageVersion=${{ steps.version.outputs.value }}
+
+      - name: Pack CLI tool
+        run: >-
+          dotnet pack src/ProtoDescDump.Cli/ProtoDescDump.Cli.csproj
+          -c Release
+          --no-build
+          -p:PackageVersion=${{ steps.version.outputs.value }}
+
+      - name: Authenticate with NuGet
+        id: nuget-login
+        uses: NuGet/login@v1
+        with:
+          user: Hiro420
+
+      - name: Publish Core package
+        run: >-
+          dotnet nuget push
+          artifacts/packages/ProtoDescDump.Core.${{ steps.version.outputs.value }}.nupkg
+          --source "$NUGET_SOURCE"
+          --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}"
+          --skip-duplicate
+
+      - name: Publish tool package
+        run: >-
+          dotnet nuget push
+          artifacts/packages/ProtoDescDump.Cli.${{ steps.version.outputs.value }}.nupkg
+          --source "$NUGET_SOURCE"
+          --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}"
+          --skip-duplicate
