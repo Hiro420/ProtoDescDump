@@ -64,7 +64,7 @@ public sealed class ProtoSchemaRestorerTests
 		Assert.Equal(2, restored.Count);
 		Assert.Contains("message Shared", restored["common.proto"]);
 		Assert.Contains("import \"common.proto\";", restored["consumer.proto"]);
-		Assert.Contains(".example.common.Shared value = 1;", restored["consumer.proto"]);
+		Assert.Contains("example.common.Shared value = 1;", restored["consumer.proto"]);
 	}
 
 	[Fact]
@@ -106,7 +106,7 @@ public sealed class ProtoSchemaRestorerTests
 		var schema = restorer.Restore(descriptor);
 
 		Assert.Contains("import \"missing.proto\";", schema);
-		Assert.Contains(".external.Payload payload = 1;", schema);
+		Assert.Contains("external.Payload payload = 1;", schema);
 	}
 
 	private static FileDescriptorProto CreateEchoDescriptor()

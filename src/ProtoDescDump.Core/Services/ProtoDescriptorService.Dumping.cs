@@ -9,22 +9,23 @@ public sealed partial class ProtoDescriptorService
 {
 	void DumpFileDescriptor(FileDescriptorProto proto, StringBuilder sb)
 	{
+		var originalDependencyCount = proto.dependency.Count;
+
 		if (!string.IsNullOrEmpty(proto.package))
 			PushDescriptorName(proto);
 
 		var marker = false;
 
-		if (!string.IsNullOrEmpty(proto.syntax))
-		{
-			AppendHeadingSpace(sb, ref marker);
-			sb.AppendLine($"syntax = {Util.ToLiteral(proto.syntax)};");
-			marker = true;
-		}
+		string syntax = string.IsNullOrEmpty(proto.syntax) ? "proto2" : proto.syntax;
+
+		AppendHeadingSpace(sb, ref marker);
+		sb.AppendLine($"syntax = {Util.ToLiteral(syntax)};");
+		marker = true;
 
 		if (proto.dependency.Count > 0)
 			AppendHeadingSpace(sb, ref marker);
 
-		for (var i = 0; i < proto.dependency.Count; i++)
+		for (var i = 0; i < originalDependencyCount; i++)
 		{
 			var dependency = proto.dependency[i];
 			var modifier = string.Empty;
@@ -41,6 +42,8 @@ public sealed partial class ProtoDescriptorService
 			sb.AppendLine($"import {modifier}\"{dependency}\";");
 			marker = true;
 		}
+
+		var customImportInsertPos = sb.Length;
 
 		if (!string.IsNullOrEmpty(proto.package))
 		{
@@ -77,6 +80,21 @@ public sealed partial class ProtoDescriptorService
 		foreach (var service in proto.service)
 		{
 			DumpService(proto, service, sb, ref marker);
+		}
+
+		if (proto.dependency.Count > originalDependencyCount)
+		{
+			var importBlock = new StringBuilder();
+			if (originalDependencyCount == 0 && customImportInsertPos > 0)
+				importBlock.AppendLine();
+
+			for (var i = originalDependencyCount; i < proto.dependency.Count; i++)
+				importBlock.AppendLine($"import \"{proto.dependency[i]}\";");
+
+			if (originalDependencyCount == 0 && customImportInsertPos == 0)
+				importBlock.AppendLine();
+
+			sb.Insert(customImportInsertPos, importBlock.ToString());
 		}
 
 		if (!string.IsNullOrEmpty(proto.package))
@@ -242,41 +260,140 @@ public sealed partial class ProtoDescriptorService
 		return optionsKv;
 	}
 
-	void DumpOptionsFieldRecursive(FieldDescriptorProto field, IExtensible options, Dictionary<string, string> optionsKv, string? path)
+	bool CanUseRelativeTypeName(string absoluteType)
 	{
-		string key = string.IsNullOrEmpty(path) ? $"({field.name})" : $"{path}.{field.name}";
+		if (!absoluteType.StartsWith(".", StringComparison.Ordinal))
+			return true;
 
+		var relativeType = absoluteType[1..];
+		var separator = relativeType.IndexOf('.');
+		var firstSegment = separator < 0 ? relativeType : relativeType[..separator];
+		var scopes = messageNameStack.Reverse().SkipLast(1);
+		var scope = string.Join(".", scopes);
+
+		while (!string.IsNullOrEmpty(scope))
+		{
+			var capturedPrefix = $".{scope}.{firstSegment}";
+			var capturedPackage = capturedPrefix[1..];
+			var isCaptured = protobufTypeMap.ContainsKey(capturedPrefix) ||
+				_protobufs.Any(proto =>
+				proto.package == capturedPackage ||
+				proto.package.StartsWith(capturedPackage + ".", StringComparison.Ordinal));
+
+			if (isCaptured)
+			{
+				return absoluteType == capturedPrefix ||
+					absoluteType.StartsWith(capturedPrefix + ".", StringComparison.Ordinal);
+			}
+
+			var lastSeparator = scope.LastIndexOf('.');
+			scope = lastSeparator < 0 ? string.Empty : scope[..lastSeparator];
+		}
+
+		return true;
+	}
+
+	bool TryFormatCustomOptionValue(FieldDescriptorProto field, IExtensible options, out string? value)
+	{
 		if (IsNamedType(field.type) && !string.IsNullOrEmpty(field.type_name))
 		{
-			var fieldData = protobufTypeMap[field.type_name].Source;
+			if (!protobufTypeMap.TryGetValue(field.type_name, out var typeNode))
+			{
+				_logger.Warn($"Skipping custom option field {field.name}: unresolved type {field.type_name}.");
+				value = null;
+				return false;
+			}
+
+			var fieldData = typeNode.Source;
 
 			if (fieldData is EnumDescriptorProto enumProto)
 			{
-				if (Extensible.TryGetValue(options, field.number, out int idx))
+				if (field.label == FieldDescriptorProto.Label.LABEL_REPEATED)
 				{
-					var value = enumProto.value.Find(x => x.number == idx)!;
-					optionsKv.Add(key, value.name);
+					var enumValues = ExtractRepeatedEnumValues(options, field.number);
+					if (enumValues.Count == 0)
+					{
+						value = null;
+						return false;
+					}
+
+					var enumNames = enumValues.Select(index =>
+					{
+						var enumValue = enumProto.value.Find(x => x.number == index);
+						return enumValue?.name ?? index.ToString();
+					});
+					value = $"[{string.Join(", ", enumNames)}]";
+					return true;
+				}
+
+				if (Extensible.TryGetValue(options, field.number, out int index))
+				{
+					var enumValue = enumProto.value.Find(x => x.number == index);
+					value = enumValue?.name ?? index.ToString();
+					return true;
 				}
 			}
 			else if (fieldData is DescriptorProto messageProto)
 			{
-				ExtensionPlaceholder extension = Extensible.GetValue<ExtensionPlaceholder>(options, field.number);
-
-				if (extension != null)
+				var extension = Extensible.GetValue<ExtensionPlaceholder>(options, field.number);
+				if (extension == null)
 				{
-					foreach (var subField in messageProto.field)
+					value = null;
+					return false;
+				}
+
+				var fields = new List<string>();
+				foreach (var subField in messageProto.field)
+				{
+					if (TryFormatCustomOptionValue(subField, extension, out var subValue))
 					{
-						DumpOptionsFieldRecursive(subField, extension, optionsKv, key);
+						fields.Add($"{subField.name}: {subValue}");
 					}
+				}
+
+				if (fields.Count > 0)
+				{
+					value = $"{{ {string.Join(" ", fields)} }}";
+					return true;
 				}
 			}
 		}
-		else
+		else if (field.label == FieldDescriptorProto.Label.LABEL_REPEATED)
 		{
-			if (ExtractType(options, field, out string? value))
+			var scalarValues = ExtractRepeatedScalarValues(options, field);
+			if (scalarValues.Count == 0)
 			{
-				optionsKv.Add(key, value!);
+				value = null;
+				return false;
 			}
+
+			value = $"[{string.Join(", ", scalarValues)}]";
+			return true;
+		}
+		else if (ExtractType(options, field, out value))
+		{
+			return true;
+		}
+
+		value = null;
+		return false;
+	}
+
+	void DumpOptionsFieldRecursive(FieldDescriptorProto field, IExtensible options, Dictionary<string, string> optionsKv, string? path, string? fullExtensionName = null)
+	{
+		var optionName = (fullExtensionName ?? field.name).TrimStart('.');
+		var key = string.IsNullOrEmpty(path) ? $"({optionName})" : $"{path}.{field.name}";
+
+		try
+		{
+			if (TryFormatCustomOptionValue(field, options, out var value))
+				optionsKv[key] = value!;
+		}
+		catch (Exception ex) when (ex is ProtoException or InvalidDataException or EndOfStreamException)
+		{
+			_logger.Warn(
+				$"Skipping incompatible custom option {key} " +
+				$"(field {field.number}, declared {field.label} {field.type}): {ex.Message}");
 		}
 	}
 
@@ -293,7 +410,16 @@ public sealed partial class ProtoDescriptorService
 			{
 				if (!string.IsNullOrEmpty(field.extendee) && field.extendee == typeName)
 				{
-					DumpOptionsFieldRecursive(field, options, optionsKv, null);
+					var optionCount = optionsKv.Count;
+					DumpOptionsFieldRecursive(field, options, optionsKv, null, type.Key);
+
+					if (optionsKv.Count > optionCount &&
+						type.Value.Proto?.name is { Length: > 0 } optionFile &&
+						optionFile != source.name &&
+						!source.dependency.Contains(optionFile))
+					{
+						source.dependency.Add(optionFile);
+					}
 				}
 			}
 		}
@@ -505,17 +631,6 @@ public sealed partial class ProtoDescriptorService
 	{
 		PushDescriptorName(field);
 
-		if (field.label == 0)
-		{
-			emitFieldLabel = false;
-		}
-		else if (source.syntax == "proto3"
-			&& field.label == FieldDescriptorProto.Label.LABEL_OPTIONAL
-			&& !field.proto3_optional)
-		{
-			emitFieldLabel = false;
-		}
-
 		var type = ResolveType(field);
 
 		if (field.label == FieldDescriptorProto.Label.LABEL_REPEATED
@@ -541,6 +656,10 @@ public sealed partial class ProtoDescriptorService
 					{
 						valueType = valueType[packagePrefix.Length..];
 					}
+					else if (valueType.StartsWith('.') && CanUseRelativeTypeName(valueType))
+					{
+						valueType = valueType[1..];
+					}
 				}
 
 				type = $"map<{keyType}, {valueType}>";
@@ -555,6 +674,10 @@ public sealed partial class ProtoDescriptorService
 			if (type.StartsWith(packagePrefix, StringComparison.Ordinal))
 			{
 				type = type[packagePrefix.Length..];
+			}
+			else if (type.StartsWith('.') && CanUseRelativeTypeName(type))
+			{
+				type = type[1..];
 			}
 		}
 
@@ -580,8 +703,12 @@ public sealed partial class ProtoDescriptorService
 		var descriptorDeclarationBuilder = new StringBuilder();
 		if (emitFieldLabel)
 		{
-			descriptorDeclarationBuilder.Append(GetLabel(field.label));
-			descriptorDeclarationBuilder.Append(' ');
+			string label = GetLabel(field.label);
+			if (source.syntax != "proto3" || label != "optional")
+			{
+				descriptorDeclarationBuilder.Append(label);
+				descriptorDeclarationBuilder.Append(' ');
+			}
 		}
 
 		descriptorDeclarationBuilder.Append($"{type} {field.name} = {field.number}{parameters};");
@@ -589,3 +716,4 @@ public sealed partial class ProtoDescriptorService
 		return descriptorDeclarationBuilder.ToString();
 	}
 }
+

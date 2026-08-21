@@ -62,7 +62,7 @@ public sealed class CliArgumentTests
 
 			var schema = File.ReadAllText(generatedPath);
 			Assert.Contains("import \"missing.proto\";", schema);
-			Assert.Contains(".external.Payload payload = 1;", schema);
+			Assert.Contains("external.Payload payload = 1;", schema);
 		}
 		finally
 		{

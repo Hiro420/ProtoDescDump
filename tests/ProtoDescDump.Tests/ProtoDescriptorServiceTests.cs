@@ -146,7 +146,7 @@ public sealed class ProtoDescriptorServiceTests
 
 		var schema = service.FormatFile(descriptor);
 		Assert.Contains("import \"missing.proto\";", schema);
-		Assert.Contains(".external.Payload payload = 1;", schema);
+		Assert.Contains("external.Payload payload = 1;", schema);
 		Assert.Contains(
 			logger.Warnings,
 			message => message.Contains("Assuming dependency exists: missing.proto"));

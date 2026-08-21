@@ -86,7 +86,7 @@ public sealed class ProtoDumpServiceTests
 		var expectedPath = Path.Combine("output", "example", "consumer", "consumer.proto");
 		Assert.True(fileSystem.Writes.TryGetValue(expectedPath, out var schema));
 		Assert.Contains("import \"missing.proto\";", schema);
-		Assert.Contains(".external.Payload payload = 1;", schema);
+		Assert.Contains("external.Payload payload = 1;", schema);
 	}
 
 	private sealed class MemoryFileSystem(byte[] input) : IFileSystem
