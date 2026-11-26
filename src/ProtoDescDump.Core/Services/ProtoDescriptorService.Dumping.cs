@@ -16,11 +16,19 @@ public sealed partial class ProtoDescriptorService
 
 		var marker = false;
 
-		string syntax = string.IsNullOrEmpty(proto.syntax) ? "proto2" : proto.syntax;
-
-		AppendHeadingSpace(sb, ref marker);
-		sb.AppendLine($"syntax = {Util.ToLiteral(syntax)};");
-		marker = true;
+		if (proto.ShouldSerializeedition() && proto.edition != Edition.EDITION_UNKNOWN)
+		{
+			AppendHeadingSpace(sb, ref marker);
+			sb.AppendLine($"edition = {Util.ToLiteral(FormatEditionDirective(proto.edition))};");
+			marker = true;
+		}
+		else
+		{
+			string syntax = string.IsNullOrEmpty(proto.syntax) ? "proto2" : proto.syntax;
+			AppendHeadingSpace(sb, ref marker);
+			sb.AppendLine($"syntax = {Util.ToLiteral(syntax)};");
+			marker = true;
+		}
 
 		if (proto.dependency.Count > 0)
 			AppendHeadingSpace(sb, ref marker);
@@ -62,6 +70,13 @@ public sealed partial class ProtoDescriptorService
 
 		if (options.Count > 0)
 		{
+			marker = true;
+		}
+
+		foreach (var comment in GetUnknownOptionComments(proto, ".google.protobuf.FileOptions", proto.options))
+		{
+			AppendHeadingSpace(sb, ref marker);
+			sb.AppendLine($"// {comment}");
 			marker = true;
 		}
 
@@ -149,6 +164,8 @@ public sealed partial class ProtoDescriptorService
 		if (options.ShouldSerializephp_metadata_namespace())
 			optionsKv.Add("php_metadata_namespace", Util.ToLiteral(options.php_metadata_namespace));
 
+		AddFeatureSetOptions(source, options.features, optionsKv);
+		AddUninterpretedOptions(options.uninterpreted_option, optionsKv);
 		DumpOptionsMatching(source, ".google.protobuf.FileOptions", options, optionsKv);
 
 		return optionsKv;
@@ -173,7 +190,21 @@ public sealed partial class ProtoDescriptorService
 			optionsKv.Add("weak", options.weak ? "true" : "false");
 		if (options.ShouldSerializejstype())
 			optionsKv.Add("jstype", $"{options.jstype}");
+		if (options.ShouldSerializeunverified_lazy())
+			optionsKv.Add("unverified_lazy", options.unverified_lazy ? "true" : "false");
+		if (options.ShouldSerializedebug_redact())
+			optionsKv.Add("debug_redact", options.debug_redact ? "true" : "false");
+		if (options.ShouldSerializeretention())
+			optionsKv.Add("retention", options.retention.ToString());
+		if (options.targets.Count > 0)
+			optionsKv.Add("targets", $"[{string.Join(", ", options.targets)}]");
+		if (options.edition_defaults.Count > 0)
+			optionsKv.Add("edition_defaults", FormatEditionDefaults(options.edition_defaults));
+		if (options.feature_support != null)
+			optionsKv.Add("feature_support", FormatFeatureSupport(options.feature_support));
 
+		AddFeatureSetOptions(source, options.features, optionsKv);
+		AddUninterpretedOptions(options.uninterpreted_option, optionsKv);
 		DumpOptionsMatching(source, ".google.protobuf.FieldOptions", options, optionsKv);
 
 		return optionsKv;
@@ -192,7 +223,11 @@ public sealed partial class ProtoDescriptorService
 			optionsKv.Add("no_standard_descriptor_accessor", options.no_standard_descriptor_accessor ? "true" : "false");
 		if (options.ShouldSerializedeprecated())
 			optionsKv.Add("deprecated", options.deprecated ? "true" : "false");
+		if (options.ShouldSerializedeprecated_legacy_json_field_conflicts())
+			optionsKv.Add("deprecated_legacy_json_field_conflicts", options.deprecated_legacy_json_field_conflicts ? "true" : "false");
 
+		AddFeatureSetOptions(source, options.features, optionsKv);
+		AddUninterpretedOptions(options.uninterpreted_option, optionsKv);
 		DumpOptionsMatching(source, ".google.protobuf.MessageOptions", options, optionsKv);
 
 		return optionsKv;
@@ -209,7 +244,11 @@ public sealed partial class ProtoDescriptorService
 			optionsKv.Add("allow_alias", options.allow_alias ? "true" : "false");
 		if (options.ShouldSerializedeprecated())
 			optionsKv.Add("deprecated", options.deprecated ? "true" : "false");
+		if (options.ShouldSerializedeprecated_legacy_json_field_conflicts())
+			optionsKv.Add("deprecated_legacy_json_field_conflicts", options.deprecated_legacy_json_field_conflicts ? "true" : "false");
 
+		AddFeatureSetOptions(source, options.features, optionsKv);
+		AddUninterpretedOptions(options.uninterpreted_option, optionsKv);
 		DumpOptionsMatching(source, ".google.protobuf.EnumOptions", options, optionsKv);
 
 		return optionsKv;
@@ -224,7 +263,13 @@ public sealed partial class ProtoDescriptorService
 
 		if (options.ShouldSerializedeprecated())
 			optionsKv.Add("deprecated", options.deprecated ? "true" : "false");
+		if (options.ShouldSerializedebug_redact())
+			optionsKv.Add("debug_redact", options.debug_redact ? "true" : "false");
+		if (options.feature_support != null)
+			optionsKv.Add("feature_support", FormatFeatureSupport(options.feature_support));
 
+		AddFeatureSetOptions(source, options.features, optionsKv);
+		AddUninterpretedOptions(options.uninterpreted_option, optionsKv);
 		DumpOptionsMatching(source, ".google.protobuf.EnumValueOptions", options, optionsKv);
 
 		return optionsKv;
@@ -240,6 +285,8 @@ public sealed partial class ProtoDescriptorService
 		if (options.ShouldSerializedeprecated())
 			optionsKv.Add("deprecated", options.deprecated ? "true" : "false");
 
+		AddFeatureSetOptions(source, options.features, optionsKv);
+		AddUninterpretedOptions(options.uninterpreted_option, optionsKv);
 		DumpOptionsMatching(source, ".google.protobuf.ServiceOptions", options, optionsKv);
 
 		return optionsKv;
@@ -254,7 +301,11 @@ public sealed partial class ProtoDescriptorService
 
 		if (options.ShouldSerializedeprecated())
 			optionsKv.Add("deprecated", options.deprecated ? "true" : "false");
+		if (options.ShouldSerializeidempotency_level())
+			optionsKv.Add("idempotency_level", options.idempotency_level.ToString());
 
+		AddFeatureSetOptions(source, options.features, optionsKv);
+		AddUninterpretedOptions(options.uninterpreted_option, optionsKv);
 		DumpOptionsMatching(source, ".google.protobuf.MethodOptions", options, optionsKv);
 
 		return optionsKv;
@@ -382,7 +433,8 @@ public sealed partial class ProtoDescriptorService
 	void DumpOptionsFieldRecursive(FieldDescriptorProto field, IExtensible options, Dictionary<string, string> optionsKv, string? path, string? fullExtensionName = null)
 	{
 		var optionName = (fullExtensionName ?? field.name).TrimStart('.');
-		var key = string.IsNullOrEmpty(path) ? $"({optionName})" : $"{path}.{field.name}";
+		var extensionKey = $"({optionName})";
+		var key = string.IsNullOrEmpty(path) ? extensionKey : $"{path}.{extensionKey}";
 
 		try
 		{
@@ -397,12 +449,9 @@ public sealed partial class ProtoDescriptorService
 		}
 	}
 
-	void DumpOptionsMatching(FileDescriptorProto source, string typeName, IExtensible options, Dictionary<string, string> optionsKv)
+	void DumpOptionsMatching(FileDescriptorProto source, string typeName, IExtensible options, Dictionary<string, string> optionsKv, string? path = null)
 	{
-		var dependencies = new HashSet<FileDescriptorProto>(protobufMap[source.name].AllPublicDependencies)
-		{
-			source
-		};
+		var dependencies = GetOptionVisibleFiles(source);
 
 		foreach (var type in protobufTypeMap)
 		{
@@ -411,7 +460,7 @@ public sealed partial class ProtoDescriptorService
 				if (!string.IsNullOrEmpty(field.extendee) && field.extendee == typeName)
 				{
 					var optionCount = optionsKv.Count;
-					DumpOptionsFieldRecursive(field, options, optionsKv, null, type.Key);
+					DumpOptionsFieldRecursive(field, options, optionsKv, path, type.Key);
 
 					if (optionsKv.Count > optionCount &&
 						type.Value.Proto?.name is { Length: > 0 } optionFile &&
@@ -475,6 +524,13 @@ public sealed partial class ProtoDescriptorService
 			innerMarker = true;
 		}
 
+		foreach (var comment in GetUnknownOptionComments(source, ".google.protobuf.MessageOptions", proto.options))
+		{
+			AppendHeadingSpace(sb, ref innerMarker);
+			sb.AppendLine($"{levelspace}	// {comment}");
+			innerMarker = true;
+		}
+
 		if (proto.extension.Count > 0)
 		{
 			DumpExtensionDescriptors(source, proto.extension, sb, level + 1, ref innerMarker);
@@ -521,6 +577,12 @@ public sealed partial class ProtoDescriptorService
 			}
 			sb.AppendLine($"{levelspace}\toneof {oneofName} {{");
 
+			foreach (var option in DumpOptions(source, oneof.options))
+				sb.AppendLine($"{levelspace}\t\toption {option.Key} = {option.Value};");
+
+			foreach (var comment in GetUnknownOptionComments(source, ".google.protobuf.OneofOptions", oneof.options))
+				sb.AppendLine($"{levelspace}\t\t// {comment}");
+
 			foreach (var field in fields)
 			{
 				sb.AppendLine($"{levelspace}\t\t{BuildDescriptorDeclaration(source, field, emitFieldLabel: false)}");
@@ -539,8 +601,15 @@ public sealed partial class ProtoDescriptorService
 				max = "max";
 			}
 
+			var rangeOptions = DumpOptions(source, range.options);
+			var parameters = rangeOptions.Count == 0
+				? string.Empty
+				: $" [{string.Join(", ", rangeOptions.Select(kvp => $"{kvp.Key} = {kvp.Value}"))}]";
+			var unknown = GetUnknownOptionComments(source, ".google.protobuf.ExtensionRangeOptions", range.options);
+			var suffix = unknown.Count == 0 ? string.Empty : $" // {string.Join("; ", unknown)}";
+
 			AppendHeadingSpace(sb, ref innerMarker);
-			sb.AppendLine($"{levelspace}\textensions {range.start} to {max};");
+			sb.AppendLine($"{levelspace}\textensions {range.start} to {max}{parameters};{suffix}");
 		}
 
 		sb.AppendLine($"{levelspace}}}");
@@ -561,6 +630,9 @@ public sealed partial class ProtoDescriptorService
 			sb.AppendLine($"{levelspace}\toption {option.Key} = {option.Value};");
 		}
 
+		foreach (var comment in GetUnknownOptionComments(source, ".google.protobuf.EnumOptions", field.options))
+			sb.AppendLine($"{levelspace}\t// {comment}");
+
 		foreach (var enumValue in field.value)
 		{
 			var options = DumpOptions(source, enumValue.options);
@@ -571,7 +643,9 @@ public sealed partial class ProtoDescriptorService
 				parameters = $" [{string.Join(", ", options.Select(kvp => $"{kvp.Key} = {kvp.Value}"))}]";
 			}
 
-			sb.AppendLine($"{levelspace}\t{enumValue.name} = {enumValue.number}{parameters};");
+			var unknown = GetUnknownOptionComments(source, ".google.protobuf.EnumValueOptions", enumValue.options);
+			var suffix = unknown.Count == 0 ? string.Empty : $" // {string.Join("; ", unknown)}";
+			sb.AppendLine($"{levelspace}\t{enumValue.name} = {enumValue.number}{parameters};{suffix}");
 		}
 
 		sb.AppendLine($"{levelspace}}}");
@@ -597,15 +671,22 @@ public sealed partial class ProtoDescriptorService
 			innerMarker = true;
 		}
 
+		foreach (var comment in GetUnknownOptionComments(source, ".google.protobuf.ServiceOptions", service.options))
+		{
+			sb.AppendLine($"\t// {comment}");
+			innerMarker = true;
+		}
+
 		foreach (var method in service.method)
 		{
 			var declaration = $"\trpc {method.name} ({(method.client_streaming ? "stream " : "")}{method.input_type}) returns ({(method.server_streaming ? "stream " : "")}{method.output_type})";
 
 			var options = DumpOptions(source, method.options);
+			var unknownOptions = GetUnknownOptionComments(source, ".google.protobuf.MethodOptions", method.options);
 
 			AppendHeadingSpace(sb, ref innerMarker);
 
-			if (options.Count == 0)
+			if (options.Count == 0 && unknownOptions.Count == 0)
 			{
 				sb.AppendLine($"{declaration};");
 			}
@@ -614,9 +695,10 @@ public sealed partial class ProtoDescriptorService
 				sb.AppendLine($"{declaration} {{");
 
 				foreach (var option in options)
-				{
 					sb.AppendLine($"\t\toption {option.Key} = {option.Value};");
-				}
+
+				foreach (var comment in unknownOptions)
+					sb.AppendLine($"\t\t// {comment}");
 
 				sb.AppendLine("\t}");
 				innerMarker = true;
@@ -712,6 +794,10 @@ public sealed partial class ProtoDescriptorService
 		}
 
 		descriptorDeclarationBuilder.Append($"{type} {field.name} = {field.number}{parameters};");
+
+		var unknownOptions = GetUnknownOptionComments(source, ".google.protobuf.FieldOptions", field.options);
+		if (unknownOptions.Count > 0)
+			descriptorDeclarationBuilder.Append($" // {string.Join("; ", unknownOptions)}");
 
 		return descriptorDeclarationBuilder.ToString();
 	}

@@ -1,5 +1,3 @@
-using google.protobuf;
-using ProtoBuf;
 using ProtoDescDump.Cli.App;
 using ProtoDescDump.Core;
 using System.CommandLine;
@@ -75,29 +73,21 @@ internal static class Program
 
 			if (Directory.Exists(input))
 			{
-				// all files from a path (recursively or not)
 				var searchOption = recurse ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
-				var files = Directory.GetFiles(input, "*.pb", searchOption);
+				var files = Directory.GetFiles(input, "*.pb", searchOption).OrderBy(path => path, StringComparer.Ordinal);
 
-				exitCode = 0;
-				foreach (var file in files)
-				{
-					int code = asSet
-						? app.Run(file, output)
-						: RunSingleProto(fileSystem, logger, coreService, file, output);
-
-					if (code != 0)
-					{
-						exitCode = code;
-					}
-				}
+                exitCode = app.Run(files, output, asSet);
 			}
 			else
 			{
-				// specific file
-				exitCode = asSet
-					? app.Run(input, output)
-					: RunSingleProto(fileSystem, logger, coreService, input, output);
+                var inputPath = Path.GetFullPath(input);
+                var searchOption = recurse ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+                var pathComparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+                var dependencyPaths = Directory.EnumerateFiles(Path.GetDirectoryName(inputPath)!, "*.pb", searchOption)
+                                   .Where(path => !pathComparer.Equals(Path.GetFullPath(path), inputPath))
+                                   .OrderBy(path => path, StringComparer.Ordinal);
+                
+                exitCode = app.Run([input], output, asSet, dependencyPaths);
 			}
 
 			return exitCode;
@@ -107,42 +97,4 @@ internal static class Program
 		return root;
 	}
 
-	static int RunSingleProto(LocalFileSystem fileSystem, ConsoleLogger logger, ProtoDescriptorService coreService, string protoPath, string outputDir)
-	{
-		try
-		{
-			logger.Info($"Loading FileDescriptorProto from \"{protoPath}\"...");
-			using var stream = fileSystem.OpenRead(protoPath);
-			var single = Serializer.Deserialize<FileDescriptorProto>(stream);
-
-			if (!coreService.Analyze([single]))
-			{
-				logger.Error("Dump failed. Not all dependencies and types were found.");
-				return -1;
-			}
-
-			var packageParts = (single.package ?? string.Empty)
-				.Split('.', StringSplitOptions.RemoveEmptyEntries);
-
-			// dirty hack to remove double google.protobuf from the path
-			if (packageParts.Length >= 2 && packageParts[0] == "google" && packageParts[1] == "protobuf")
-				packageParts = packageParts[2..];
-
-			var outDir = Path.Combine([outputDir, .. packageParts]);
-			var outputFile = Path.Combine(outDir, single.name);
-
-			fileSystem.EnsureDirectory(Path.GetDirectoryName(outputFile)!);
-			var protoText = coreService.FormatFile(single);
-
-			logger.Info($"Outputting proto to \"{outputFile}\"");
-			fileSystem.WriteAllText(outputFile, protoText);
-			logger.Info("Dump completed successfully.");
-			return 0;
-		}
-		catch (Exception ex)
-		{
-			logger.Error("[FATAL] Failed", ex);
-			return -1;
-		}
-	}
 }

@@ -1,6 +1,6 @@
 using google.protobuf;
+using ProtoBuf;
 using ProtoDescDump.Core.Services.ProtoDescriptor;
-using System.Diagnostics;
 using System.Text;
 
 namespace ProtoDescDump.Core;
@@ -23,14 +23,49 @@ public sealed partial class ProtoDescriptorService
 		}
 		else if (source != null)
 		{
-			Debug.Assert(node.Defined == false);
-
-			node.Proto = proto;
-			node.Source = source;
-			node.Defined = true;
+			if (!node.Defined)
+			{
+				node.Proto = proto;
+				node.Source = source;
+				node.Defined = true;
+			}
+			else if (!DescriptorSourcesEqual(node.Source, source))
+			{
+				throw new InvalidDataException(
+					$"Conflicting definitions for protobuf type {name}: " +
+					$"{node.Proto?.name ?? "<unknown>"} and {proto?.name ?? "<unknown>"}.");
+			}
+			else if (!ReferenceEquals(node.Proto, proto))
+			{
+				_logger.Warn(
+					$"Duplicate identical protobuf type {name} in " +
+					$"{node.Proto?.name ?? "<unknown>"} and {proto?.name ?? "<unknown>"}. Using the first definition.");
+			}
 		}
 
 		return node;
+	}
+
+	static bool DescriptorSourcesEqual(object? left, object right)
+	{
+		if (left == null || left.GetType() != right.GetType())
+			return false;
+
+		return (left, right) switch
+		{
+			(DescriptorProto a, DescriptorProto b) => SerializeDescriptor(a).AsSpan().SequenceEqual(SerializeDescriptor(b)),
+			(EnumDescriptorProto a, EnumDescriptorProto b) => SerializeDescriptor(a).AsSpan().SequenceEqual(SerializeDescriptor(b)),
+			(FieldDescriptorProto a, FieldDescriptorProto b) => SerializeDescriptor(a).AsSpan().SequenceEqual(SerializeDescriptor(b)),
+			(ServiceDescriptorProto a, ServiceDescriptorProto b) => SerializeDescriptor(a).AsSpan().SequenceEqual(SerializeDescriptor(b)),
+			_ => false
+		};
+	}
+
+	static byte[] SerializeDescriptor<T>(T value)
+	{
+		using var stream = new MemoryStream();
+		Serializer.Serialize(stream, value);
+		return stream.ToArray();
 	}
 
 	public bool Analyze(IReadOnlyList<FileDescriptorProto> input)
@@ -109,16 +144,18 @@ public sealed partial class ProtoDescriptorService
 
 		foreach (var pair in protobufMap)
 		{
-			foreach (var dependency in pair.Value.Proto!.dependency)
-			{
-				if (dependency.StartsWith("google", StringComparison.Ordinal)) continue;
+			var declaredDependencies = pair.Value.Proto!.dependency
+				.Concat(pair.Value.Proto.option_dependency)
+				.Distinct(StringComparer.Ordinal);
 
+			foreach (var dependency in declaredDependencies)
+			{
 				if (protobufMap.TryGetValue(dependency, out var depends))
 				{
 					pair.Value.Dependencies.Add(depends);
 				}
-				else
-				{
+                else if (!dependency.StartsWith("google", StringComparison.Ordinal))
+                {
 					_logger.Warn($"Unknown dependency: {dependency} for {pair.Value.Proto.name}");
 
 					var missing = missingDependencies.Find(x => x.Name == dependency);
